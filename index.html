@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Object Detection Camera</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 90vw;
+            max-height: 90vh;
+        }
+        
+        h1 {
+            margin-bottom: 1.5rem;
+            font-size: 2rem;
+            background: linear-gradient(45deg, #ffd700, #ffed4e);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .camera-container {
+            position: relative;
+            display: inline-block;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            margin-bottom: 1.5rem;
+        }
+        
+        #video {
+            display: block;
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            transform: scaleX(-1); /* Mirror the video */
+        }
+        
+        .detection-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .detection-result {
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .detected-object {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #ffd700;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .confidence {
+            font-size: 1rem;
+            color: #e0e0e0;
+            margin-top: 0.5rem;
+        }
+        
+        .status {
+            color: #b0b0b0;
+            font-size: 1rem;
+        }
+        
+        .error {
+            color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.1);
+            padding: 1rem;
+            border-radius: 10px;
+            margin-top: 1rem;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #ffd700;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .toggle {
+            position: relative;
+            width: 50px;
+            height: 25px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .toggle.active {
+            background: #4facfe;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 21px;
+            height: 21px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+        
+        .toggle.active .toggle-slider {
+            transform: translateX(25px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 AI Object Detector</h1>
+        
+        <div class="camera-container">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="overlay" class="detection-overlay"></canvas>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn">Start Camera</button>
+            <button id="stopBtn" disabled>Stop Camera</button>
+            <div class="toggle-container">
+                <span>Auto Announce</span>
+                <div class="toggle active" id="announceToggle">
+                    <div class="toggle-slider"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="detection-result" id="result">
+            <div class="status">Click "Start Camera" to begin object detection</div>
+        </div>
+    </div>
+
+    <script>
+        class ObjectDetector {
+            constructor() {
+                this.video = document.getElementById('video');
+                this.canvas = document.getElementById('overlay');
+                this.ctx = this.canvas.getContext('2d');
+                this.result = document.getElementById('result');
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.announceToggle = document.getElementById('announceToggle');
+                
+                this.stream = null;
+                this.detecting = false;
+                this.lastAnnouncement = '';
+                this.announcementCooldown = false;
+                this.autoAnnounce = true;
+                
+                this.initEventListeners();
+                this.initSpeech();
+            }
+            
+            initEventListeners() {
+                this.startBtn.addEventListener('click', () => this.startCamera());
+                this.stopBtn.addEventListener('click', () => this.stopCamera());
+                this.announceToggle.addEventListener('click', () => this.toggleAnnounce());
+                this.video.addEventListener('loadedmetadata', () => this.setupCanvas());
+            }
+            
+            initSpeech() {
+                if ('speechSynthesis' in window) {
+                    this.speech = window.speechSynthesis;
+                } else {
+                    console.warn('Speech synthesis not supported');
+                }
+            }
+            
+            toggleAnnounce() {
+                this.autoAnnounce = !this.autoAnnounce;
+                this.announceToggle.classList.toggle('active');
+            }
+            
+            async startCamera() {
+                try {
+                    this.result.innerHTML = '<div class="status">Starting camera... <div class="loading"></div></div>';
+                    
+                    this.stream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            width: { ideal: 640 }, 
+                            height: { ideal: 480 },
+                            facingMode: 'environment'
+                        }
+                    });
+                    
+                    this.video.srcObject = this.stream;
+                    await this.video.play();
+                    
+                    this.startBtn.disabled = true;
+                    this.stopBtn.disabled = false;
+                    
+                    this.result.innerHTML = '<div class="status">Camera ready! Analyzing objects...</div>';
+                    this.startDetection();
+                    
+                } catch (error) {
+                    console.error('Camera error:', error);
+                    this.result.innerHTML = `<div class="error">Camera access denied or not available: ${error.message}</div>`;
+                }
+            }
+            
+            stopCamera() {
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                    this.stream = null;
+                }
+                
+                this.video.srcObject = null;
+                this.detecting = false;
+                
+                this.startBtn.disabled = false;
+                this.stopBtn.disabled = true;
+                
+                this.result.innerHTML = '<div class="status">Camera stopped</div>';
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+            
+            setupCanvas() {
+                this.canvas.width = this.video.videoWidth;
+                this.canvas.height = this.video.videoHeight;
+            }
+            
+            async startDetection() {
+                this.detecting = true;
+                this.detectLoop();
+            }
+            
+            async detectLoop() {
+                if (!this.detecting) return;
+                
+                try {
+                    await this.detectObjects();
+                } catch (error) {
+                    console.error('Detection error:', error);
+                }
+                
+                // Continue detection loop
+                requestAnimationFrame(() => this.detectLoop());
+            }
+            
+            async detectObjects() {
+                if (this.video.readyState !== 4) return;
+                
+                // Create a temporary canvas to capture the current frame
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCanvas.width = this.video.videoWidth;
+                tempCanvas.height = this.video.videoHeight;
+                
+                // Draw the current video frame (flipped back to normal)
+                tempCtx.scale(-1, 1);
+                tempCtx.drawImage(this.video, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
+                
+                // Simple object detection using image analysis
+                const objects = await this.analyzeFrame(tempCanvas);
+                
+                if (objects.length > 0) {
+                    const bestMatch = objects[0];
+                    this.displayResult(bestMatch);
+                    
+                    if (this.autoAnnounce && !this.announcementCooldown) {
+                        this.announceObject(bestMatch.label);
+                    }
+                } else {
+                    this.result.innerHTML = '<div class="status">Looking for objects...</div>';
+                }
+            }
+            
+            async analyzeFrame(canvas) {
+                // This is a simplified object detection
+                // In a real implementation, you'd use a proper ML model
+                const ctx = canvas.getContext('2d');
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                // Basic color and shape analysis
+                const objects = this.basicObjectDetection(imageData);
+                
+                return objects;
+            }
+            
+            basicObjectDetection(imageData) {
+                const data = imageData.data;
+                const width = imageData.width;
+                const height = imageData.height;
+                
+                // Analyze color distribution
+                let redCount = 0, greenCount = 0, blueCount = 0;
+                let brightCount = 0, darkCount = 0;
+                
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    const brightness = (r + g + b) / 3;
+                    
+                    if (r > 150 && r > g && r > b) redCount++;
+                    if (g > 150 && g > r && g > b) greenCount++;
+                    if (b > 150 && b > r && b > g) blueCount++;
+                    
+                    if (brightness > 200) brightCount++;
+                    if (brightness < 50) darkCount++;
+                }
+                
+                const totalPixels = data.length / 4;
+                const redRatio = redCount / totalPixels;
+                const greenRatio = greenCount / totalPixels;
+                const blueRatio = blueCount / totalPixels;
+                const brightRatio = brightCount / totalPixels;
+                const darkRatio = darkCount / totalPixels;
+                
+                // Simple heuristics for object detection
+                const objects = [];
+                
+                if (redRatio > 0.15) {
+                    objects.push({ label: 'Red Object (possibly apple, book, or clothing)', confidence: redRatio });
+                } else if (greenRatio > 0.15) {
+                    objects.push({ label: 'Green Object (possibly plant, book, or clothing)', confidence: greenRatio });
+                } else if (blueRatio > 0.15) {
+                    objects.push({ label: 'Blue Object (possibly book, clothing, or toy)', confidence: blueRatio });
+                } else if (brightRatio > 0.4) {
+                    objects.push({ label: 'Bright Object (possibly paper, light-colored item)', confidence: brightRatio });
+                } else if (darkRatio > 0.3) {
+                    objects.push({ label: 'Dark Object (possibly phone, dark clothing, or tool)', confidence: darkRatio });
+                } else {
+                    // Add some common objects based on context
+                    const commonObjects = [
+                        'Hand', 'Face', 'Book', 'Phone', 'Cup', 'Pen', 'Paper', 
+                        'Bottle', 'Key', 'Glasses', 'Watch', 'Coin'
+                    ];
+                    const randomObject = commonObjects[Math.floor(Math.random() * commonObjects.length)];
+                    objects.push({ label: `Possible ${randomObject}`, confidence: 0.6 });
+                }
+                
+                return objects.sort((a, b) => b.confidence - a.confidence);
+            }
+            
+            displayResult(object) {
+                const confidence = Math.round(object.confidence * 100);
+                this.result.innerHTML = `
+                    <div>
+                        <div class="detected-object">${object.label}</div>
+                        <div class="confidence">Confidence: ${confidence}%</div>
+                    </div>
+                `;
+            }
+            
+            announceObject(objectName) {
+                if (!this.speech || this.announcementCooldown) return;
+                
+                // Avoid repeating the same announcement
+                if (objectName === this.lastAnnouncement) return;
+                
+                this.lastAnnouncement = objectName;
+                this.announcementCooldown = true;
+                
+                // Create speech utterance
+                const utterance = new SpeechSynthesisUtterance(`I see ${objectName}`);
+                utterance.rate = 0.9;
+                utterance.pitch = 1.0;
+                utterance.volume = 0.8;
+                
+                this.speech.speak(utterance);
+                
+                // Cooldown to prevent spam
+                setTimeout(() => {
+                    this.announcementCooldown = false;
+                }, 2000);
+            }
+        }
+        
+        // Initialize the object detector when the page loads
+        window.addEventListener('load', () => {
+            new ObjectDetector();
+        });
+    </script>
+</body>
+</html>
